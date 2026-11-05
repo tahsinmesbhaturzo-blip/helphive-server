@@ -8,18 +8,15 @@ const app = express();
 app.use(cors({ origin: process.env.CLIENT_URL }));
 app.use(express.json());
 
-// ---------- Database ----------
 const client = new MongoClient(process.env.MONGODB_URI);
 await client.connect();
 const db = client.db("eventsDB");
 const events = db.collection("events");
 const joined = db.collection("joinedEvents");
 
-// ---------- Helpers ----------
 const today = () => new Date().toISOString().slice(0, 10);
 
-// ---------- JWT middleware ----------
-// The token is created by BetterAuth in the client. We check it using the client's public keys.
+
 const JWKS = createRemoteJWKSet(
   new URL(`${process.env.CLIENT_URL}/api/auth/jwks`)
 );
@@ -31,17 +28,15 @@ async function verifyToken(req, res, next) {
   }
   try {
     const { payload } = await jwtVerify(header.split(" ")[1], JWKS);
-    req.user = payload; // contains email, name, id
+    req.user = payload; 
     next();
   } catch (error) {
     return res.status(401).json({ message: "Unauthorized: invalid token" });
   }
 }
 
-// ---------- Public routes ----------
 app.get("/", (req, res) => res.send("HelpHive server is running"));
 
-// Upcoming events (optional ?limit=6&search=abc&type=Cleanup)
 app.get("/events/upcoming", async (req, res) => {
   const query = { eventDate: { $gte: today() } };
   if (req.query.type) query.eventType = req.query.type;
@@ -55,7 +50,7 @@ app.get("/events/upcoming", async (req, res) => {
   res.json(result);
 });
 
-// Single event
+
 app.get("/events/:id", async (req, res) => {
   try {
     const event = await events.findOne({ _id: new ObjectId(req.params.id) });
@@ -66,8 +61,7 @@ app.get("/events/:id", async (req, res) => {
   }
 });
 
-// ---------- Protected routes ----------
-// Create event
+
 app.post("/events", verifyToken, async (req, res) => {
   const { title, description, eventType, thumbnail, location, eventDate } = req.body;
   if (!title || !description || !eventType || !thumbnail || !location || !eventDate) {
@@ -86,7 +80,6 @@ app.post("/events", verifyToken, async (req, res) => {
   res.status(201).json(result);
 });
 
-// My events (manage page)
 app.get("/my-events", verifyToken, async (req, res) => {
   const result = await events
     .find({ createdBy: req.user.email })
@@ -95,15 +88,13 @@ app.get("/my-events", verifyToken, async (req, res) => {
   res.json(result);
 });
 
-
-// Update my event
 app.put("/events/:id", verifyToken, async (req, res) => {
   const { title, description, eventType, thumbnail, location, eventDate } = req.body;
   if (eventDate <= today()) {
     return res.status(400).json({ message: "Event date must be in the future" });
   }
   const result = await events.updateOne(
-    { _id: new ObjectId(req.params.id), createdBy: req.user.email }, // owner only
+    { _id: new ObjectId(req.params.id), createdBy: req.user.email },
     { $set: { title, description, eventType, thumbnail, location, eventDate } }
   );
   if (result.matchedCount === 0) {
@@ -112,14 +103,45 @@ app.put("/events/:id", verifyToken, async (req, res) => {
   res.json({ message: "Event updated" });
 });
 
-// Delete my event
 app.delete("/events/:id", verifyToken, async (req, res) => {
   const result = await events.deleteOne({
     _id: new ObjectId(req.params.id),
-    createdBy: req.user.email, // owner only
+    createdBy: req.user.email, 
   });
   if (result.deletedCount === 0) {
     return res.status(403).json({ message: "You can only delete your own events" });
   }
   res.json({ message: "Event deleted" });
 });
+
+app.post("/join", verifyToken, async (req, res) => {
+  const { eventId } = req.body;
+  const event = await events.findOne({ _id: new ObjectId(eventId) });
+  if (!event) return res.status(404).json({ message: "Event not found" });
+
+  const already = await joined.findOne({ eventId, userEmail: req.user.email });
+  if (already) return res.status(400).json({ message: "You already joined this event" });
+
+  await joined.insertOne({
+    eventId,
+    userEmail: req.user.email,
+    userName: req.user.name,
+    title: event.title,
+    thumbnail: event.thumbnail,
+    location: event.location,
+    eventType: event.eventType,
+    eventDate: event.eventDate,
+    joinedAt: new Date(),
+  });
+  res.status(201).json({ message: "Joined successfully" });
+});
+
+app.get("/joined", verifyToken, async (req, res) => {
+  const result = await joined
+    .find({ userEmail: req.user.email })
+    .sort({ eventDate: 1 })
+    .toArray();
+  res.json(result);
+});
+
+app.listen(process.env.PORT || 5000, () => console.log("Server running"));
