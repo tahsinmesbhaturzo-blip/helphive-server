@@ -65,3 +65,32 @@ app.get("/events/:id", async (req, res) => {
     res.status(404).json({ message: "Event not found" });
   }
 });
+
+// ---------- Protected routes ----------
+// Create event
+app.post("/events", verifyToken, async (req, res) => {
+  const { title, description, eventType, thumbnail, location, eventDate } = req.body;
+  if (!title || !description || !eventType || !thumbnail || !location || !eventDate) {
+    return res.status(400).json({ message: "All fields are required" });
+  }
+  if (eventDate <= today()) {
+    return res.status(400).json({ message: "Event date must be in the future" });
+  }
+  const newEvent = {
+    title, description, eventType, thumbnail, location, eventDate,
+    createdBy: req.user.email,
+    creatorName: req.user.name,
+    createdAt: new Date(),
+  };
+  const result = await events.insertOne(newEvent);
+  res.status(201).json(result);
+});
+
+// My events (manage page)
+app.get("/my-events", verifyToken, async (req, res) => {
+  const result = await events
+    .find({ createdBy: req.user.email })
+    .sort({ eventDate: 1 })
+    .toArray();
+  res.json(result);
+});
