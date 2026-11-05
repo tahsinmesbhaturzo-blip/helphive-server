@@ -111,3 +111,15 @@ app.put("/events/:id", verifyToken, async (req, res) => {
   }
   res.json({ message: "Event updated" });
 });
+
+// Delete my event
+app.delete("/events/:id", verifyToken, async (req, res) => {
+  const result = await events.deleteOne({
+    _id: new ObjectId(req.params.id),
+    createdBy: req.user.email, // owner only
+  });
+  if (result.deletedCount === 0) {
+    return res.status(403).json({ message: "You can only delete your own events" });
+  }
+  res.json({ message: "Event deleted" });
+});
