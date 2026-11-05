@@ -94,3 +94,20 @@ app.get("/my-events", verifyToken, async (req, res) => {
     .toArray();
   res.json(result);
 });
+
+
+// Update my event
+app.put("/events/:id", verifyToken, async (req, res) => {
+  const { title, description, eventType, thumbnail, location, eventDate } = req.body;
+  if (eventDate <= today()) {
+    return res.status(400).json({ message: "Event date must be in the future" });
+  }
+  const result = await events.updateOne(
+    { _id: new ObjectId(req.params.id), createdBy: req.user.email }, // owner only
+    { $set: { title, description, eventType, thumbnail, location, eventDate } }
+  );
+  if (result.matchedCount === 0) {
+    return res.status(403).json({ message: "You can only update your own events" });
+  }
+  res.json({ message: "Event updated" });
+});
